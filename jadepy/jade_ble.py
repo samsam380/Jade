@@ -97,10 +97,11 @@ class JadeBleImpl:
 
         # Remove previous bt/ble pairing data for this device
         if platform.system() == 'Linux':
-            command = "bt-device --remove '{}'".format(device_mac)
-            process = subprocess.run(command,
-                                     shell=True,
-                                     stdout=subprocess.DEVNULL)
+            # Pass the address as a distinct argument.  Apart from avoiding an
+            # unnecessary shell, this ensures an address obtained during BLE
+            # discovery can never be interpreted as shell syntax.
+            subprocess.run(['bt-device', '--remove', device_mac],
+                           stdout=subprocess.DEVNULL)
 
         # Connect - seems pretty flaky so allow retries
         connected = False
