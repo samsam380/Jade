@@ -96,16 +96,38 @@ static bool parse_bcur_bip39_cbor(
     if (cberr != CborNoError || !cbor_value_is_valid(&arrayItem) || !cbor_value_is_text_string(&arrayItem)) {
         return false;
     }
+    // NOTE: 'number_of_words' is the length declared by the sender, so every element must be
+    // re-checked as we go, and every write must be bounded by the output buffer.
+    // We maintain the invariant 'write_pos < mnemonic_len' throughout, so there is always
+    // room for the nul-terminator appended after the loop.
     size_t write_pos = 0;
     for (size_t i = 0; i < number_of_words; ++i) {
+        if (!cbor_value_is_valid(&arrayItem) || !cbor_value_is_text_string(&arrayItem)) {
+            JADE_LOGW("Unexpected element type at position %u in bcur bip39 word list", i);
+            return false;
+        }
+
         if (write_pos) {
-            // Add space separator
+            // Add space separator - need room for it and for the nul-terminator
+            if (write_pos + 1 >= mnemonic_len) {
+                JADE_LOGW("Mnemonic too long for buffer (%u bytes)", mnemonic_len);
+                return false;
+            }
             mnemonic[write_pos++] = ' ';
         }
 
         CborValue next;
-        size_t tmp_len = mnemonic_len - write_pos;
+        // NOTE: reserve the final byte for the nul-terminator appended below
+        size_t tmp_len = mnemonic_len - write_pos - 1;
         cberr = cbor_value_copy_text_string(&arrayItem, mnemonic + write_pos, &tmp_len, &next);
+        if (cberr != CborNoError) {
+            // NOTE: when the buffer is too small this returns CborErrorOutOfMemory and sets
+            // 'tmp_len' to the full length of the string - ie. more than has been written -
+            // so 'tmp_len' must not be added to 'write_pos' in that case.
+            JADE_LOGW("Failed to read word at position %u of bcur bip39 word list: %u", i, cberr);
+            return false;
+        }
+        JADE_ASSERT(tmp_len < mnemonic_len - write_pos);
         write_pos += tmp_len;
         arrayItem = next;
     }
@@ -138,6 +160,8 @@ static bool parse_bcur_bip39_cbor(
     cberr = cbor_value_leave_container(&value, &mapItem);
     JADE_ASSERT(cberr == CborNoError);
 
+    // The loop above maintains room for the nul-terminator
+    JADE_ASSERT(write_pos < mnemonic_len);
     mnemonic[write_pos++] = '\0';
     *written = write_pos;
 

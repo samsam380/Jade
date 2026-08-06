@@ -176,7 +176,8 @@ bool otp_uri_to_ctx(const char* uri, size_t uri_len, otpauth_ctx_t* otp_ctx)
         OTP_CHECK_BOOL_RETURN(tmp && tmp_len > 0 && tmp_len <= 20);
 
         // Needs copying to nul-terminated buffer before converting
-        char buf[20];
+        // NOTE: buffer must have room for the maximum 20 digits *and* the nul-terminator
+        char buf[21];
         memcpy(buf, tmp, tmp_len);
         buf[tmp_len] = '\0';
         otp_ctx->counter = strtoull(buf, NULL, 10);
