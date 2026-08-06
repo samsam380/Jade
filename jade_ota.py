@@ -7,6 +7,7 @@ import json
 import hashlib
 import logging
 import argparse
+import signal
 import subprocess
 
 from jadepy import JadeAPI
@@ -48,10 +49,7 @@ def start_agent(passkey_file):
 
 
 def kill_agent(btagent):
-    command = f'kill -HUP {btagent.pid}'
-    subprocess.run(command,
-                   shell=True,
-                   stdout=subprocess.DEVNULL)
+    os.kill(btagent.pid, signal.SIGHUP)
     logger.info(f'Killed bt-agent {btagent.pid}')
 
 
