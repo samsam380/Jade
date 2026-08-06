@@ -3185,7 +3185,7 @@ def start_agent(passkey_file):
 
 
 def kill_agent(btagent):
-    os.kill(btagent.pid, signal.SIGHUP)
+    btagent.send_signal(signal.SIGHUP)
     logger.info('Killed bt-agent {}'.format(btagent.pid))
 
 
