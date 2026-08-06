@@ -54,8 +54,10 @@ if os.path.isfile('./sdkconfig'):
     os.remove('./sdkconfig')
 
 # Process tempfile with 'idf.py reconfigure write-defconfig' to create new sdkconfig.defaults
-subprocess.check_call(f'idf.py -D SDKCONFIG_DEFAULTS="{TEMPFILE}" reconfigure save-defconfig',
-                      shell=True)
+subprocess.check_call([
+    'idf.py', '-D', f'SDKCONFIG_DEFAULTS={TEMPFILE}',
+    'reconfigure', 'save-defconfig'
+])
 
 # Remove tempfile
 os.remove(TEMPFILE)

@@ -8,6 +8,7 @@ import collections.abc
 import traceback
 import random
 import sys
+from urllib.parse import urlsplit
 
 # JadeError
 from .jade_error import JadeError
@@ -67,6 +68,19 @@ def _hexlify(data):
 try:
     import requests
 
+    HTTP_REQUEST_TIMEOUT = 30
+    HTTP_RESPONSE_MAX_BYTES = 1024 * 1024
+
+    def _get_https_url(urls):
+        """Return the first well-formed, non-onion HTTPS URL."""
+        for url in urls:
+            parsed = urlsplit(url)
+            if parsed.scheme == 'https' and parsed.hostname and \
+                    not parsed.hostname.endswith('.onion') and \
+                    parsed.username is None and parsed.password is None:
+                return url
+        raise ValueError('No valid HTTPS URL supplied')
+
     def _http_request(params):
         """
         Simple http request function which can be used when a Jade response
@@ -87,27 +101,50 @@ try:
             with single key 'body', whose value is the json returned from the call
 
         """
-        logger.debug('_http_request: {}'.format(params))
+        # The parameters and response can contain authentication material, so
+        # deliberately avoid writing either body to the debug log.
+        url = _get_https_url(params['urls'])
+        method = params['method']
+        logger.debug('_http_request: %s %s', method, url)
+        request_args = {
+            'allow_redirects': False,
+            'stream': True,
+            'timeout': HTTP_REQUEST_TIMEOUT,
+        }
 
-        # Use the first non-onion url
-        url = [url for url in params['urls'] if not url.endswith('.onion')][0]
-        if params['method'] == 'GET':
-            assert 'data' not in params, 'Cannot pass body to requests.get'
-            f = requests.get(url)
-        elif params['method'] == 'POST':
+        if method == 'GET':
+            if 'data' in params:
+                raise ValueError('Cannot pass body to requests.get')
+            f = requests.get(url, **request_args)
+        elif method == 'POST':
             data = json.dumps(params['data'])
-            f = requests.post(url, data)
+            f = requests.post(url, data, **request_args)
+        else:
+            raise ValueError('Unsupported HTTP method: {}'.format(method))
 
-        logger.debug("http_request received reply: {}".format(f.text))
+        try:
+            if f.status_code != 200:
+                logger.error('http error %s from %s', f.status_code, url)
+                raise ValueError(f.status_code)
 
-        if f.status_code != 200:
-            logger.error("http error {} : {}".format(f.status_code, f.text))
-            raise ValueError(f.status_code)
+            if params.get('accept') != 'json':
+                raise ValueError('Only JSON responses are supported')
+            content_length = f.headers.get('Content-Length')
+            if content_length is not None and int(content_length) > HTTP_RESPONSE_MAX_BYTES:
+                raise ValueError('HTTP response too large')
 
-        assert params['accept'] == 'json'
-        f = f.json()
+            body = bytearray()
+            for chunk in f.iter_content(chunk_size=64 * 1024):
+                body.extend(chunk)
+                if len(body) > HTTP_RESPONSE_MAX_BYTES:
+                    break
+            if len(body) > HTTP_RESPONSE_MAX_BYTES:
+                raise ValueError('HTTP response too large')
+            reply = json.loads(body)
+        finally:
+            f.close()
 
-        return {'body': f}
+        return {'body': reply}
 
 except ImportError as e:
     logger.info(e)

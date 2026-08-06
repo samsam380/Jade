@@ -9,6 +9,7 @@ import random
 import logging
 import argparse
 import subprocess
+import signal
 import threading
 import _thread
 
@@ -3184,10 +3185,7 @@ def start_agent(passkey_file):
 
 
 def kill_agent(btagent):
-    command = 'kill -HUP {}'.format(btagent.pid)
-    subprocess.run(command,
-                   shell=True,
-                   stdout=subprocess.DEVNULL)
+    btagent.send_signal(signal.SIGHUP)
     logger.info('Killed bt-agent {}'.format(btagent.pid))
 
 
