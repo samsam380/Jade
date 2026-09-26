@@ -116,27 +116,36 @@ bool rpc_request_valid(const CborValue* request)
     return true;
 }
 
-static uint8_t get_skip(const uint8_t lencode)
+static bool get_header_size(const uint8_t lencode, size_t* header_size)
 {
+    JADE_ASSERT(header_size);
+
     /**
      * The value here indicates the size of the following varint-like data-length field.
      * <24 - Just skip this byte (as it contains the length)
      *  24 - Next byte is uint8_t for payload length, so skip 2 bytes (this and next one)
      *  25 - Next byte is uint16_t for payload length, so skip 3 bytes (this and next two)
      *  26 - Next byte is uint32_t for payload length, so skip 5 bytes (this and next four)
-     *  27 is theoretically uint64_t but we are not expecting payloads in that size range!
+     *  27 - Next eight bytes are a uint64_t payload length.  A small payload may
+     *       still use this non-minimal representation, so it must be handled even
+     *       though messages themselves are bounded to MAX_INPUT_MSG_SIZE.
      **/
-    JADE_ASSERT(lencode < 27);
     if (lencode < 24) {
-        return 1;
+        *header_size = 1;
     } else if (lencode == 24) {
-        return 2;
+        *header_size = 2;
     } else if (lencode == 25) {
-        return 3;
+        *header_size = 3;
     } else if (lencode == 26) {
-        return 5;
+        *header_size = 5;
+    } else if (lencode == 27) {
+        *header_size = 9;
+    } else {
+        // Values 28--30 are reserved and 31 denotes an indefinite-length
+        // string, which cannot be exposed as one contiguous pointer.
+        return false;
     }
-    return 0;
+    return true;
 }
 
 static void rpc_get_raw_type_ptr(const CborValue* value, const uint8_t** data, size_t* size, const uint8_t masktype)
@@ -157,7 +166,12 @@ static void rpc_get_raw_type_ptr(const CborValue* value, const uint8_t** data, s
     }
 
     const uint8_t lencode = *next_byte & CBOR_LEN_MASK;
-    *data = next_byte + get_skip(lencode);
+    size_t header_size = 0;
+    if (!get_header_size(lencode, &header_size)) {
+        *size = 0;
+        return;
+    }
+    *data = next_byte + header_size;
 }
 
 void rpc_get_raw_bytes_ptr(const CborValue* value, const uint8_t** data, size_t* size)
